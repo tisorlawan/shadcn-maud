@@ -1,11 +1,9 @@
 dev:
-	cargo watch -w "src" -x "run serve"
+	cargo watch -c -w "src" -x "lrun serve"
 
-# compile tailwind css
-tw:
+tw-build:
 	npx tailwindcss -i styles/tailwind.css -o static/dist/css/style.css
 
-# compile tailwind css style in watch mode
 tw-dev:
 	npx tailwindcss -i styles/tailwind.css -o static/dist/css/style.css -w
 

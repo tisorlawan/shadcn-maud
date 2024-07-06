@@ -1,114 +1,274 @@
-use axum::routing::get;
+use std::fs;
+use std::io::Read;
+
+use axum::{
+    body::Bytes,
+    extract::Multipart,
+    http::HeaderMap,
+    response::IntoResponse,
+    routing::{get, post, put},
+};
 use maud::{html, Markup, PreEscaped};
-use shadcnui_maud::button::*;
+use shadcnui_maud::web::prelude::*;
 use tower_http::services::ServeDir;
 
-#[tokio::main]
-async fn main() {
+#[derive(argh::FromArgs, PartialEq, Debug)]
+/// Top-level command.
+struct Arg {
+    #[argh(subcommand)]
+    cmd: MySubCommandEnum,
+}
+
+#[derive(argh::FromArgs, PartialEq, Debug)]
+#[argh(subcommand)]
+enum MySubCommandEnum {
+    Init(InitCmdArgs),
+    Build(BuildCmdArgs),
+    Serve(ServeCmdArgs),
+}
+
+#[derive(argh::FromArgs, PartialEq, Debug)]
+/// Initialize.
+#[argh(subcommand, name = "init")]
+struct InitCmdArgs {
+    /// list of the files (with format: `fname` `dir_path` `url_download`).
+    #[argh(option, default = "std::path::PathBuf::from(\"./static/files.txt\")")]
+    files_list_path: std::path::PathBuf,
+
+    /// base dir.
+    #[argh(option, default = "std::path::PathBuf::from(\"./static\")")]
+    base_dir: std::path::PathBuf,
+}
+
+#[derive(argh::FromArgs, PartialEq, Debug)]
+/// Build.
+#[argh(subcommand, name = "build")]
+struct BuildCmdArgs {
+    /// list of the files (with format: `fname` `dir_path` `url_download`).
+    #[argh(option, default = "std::path::PathBuf::from(\"./static/files.txt\")")]
+    files_list_path: std::path::PathBuf,
+
+    /// base dir.
+    #[argh(option, default = "std::path::PathBuf::from(\"./static\")")]
+    base_dir: std::path::PathBuf,
+}
+
+#[derive(argh::FromArgs, PartialEq, Debug)]
+/// Serve.
+#[argh(subcommand, name = "serve")]
+struct ServeCmdArgs {
+    /// port.
+    #[argh(option, default = "3000")]
+    port: usize,
+}
+
+async fn serve(opts: ServeCmdArgs) {
     let route = axum::Router::new()
         .route("/", get(root_page))
-        .nest_service("/static", ServeDir::new("./static/dist"));
+        .route("/nice", get(nice))
+        .route("/upload", post(upload))
+        .nest_service(
+            "/static",
+            ServeDir::new("./static/dist").precompressed_gzip(),
+        )
+        .layer(axum::extract::DefaultBodyLimit::max(1024 * 1024 * 512)); // max 512 MB
 
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000")
+    let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", opts.port))
         .await
         .expect("bind server");
     axum::serve(listener, route).await.expect("serve app");
 }
 
+#[tokio::main]
+async fn main() {
+    let arg: Arg = argh::from_env();
+
+    match arg.cmd {
+        MySubCommandEnum::Init(opts) => init(opts).await,
+        MySubCommandEnum::Build(opts) => build(opts).await,
+        MySubCommandEnum::Serve(opts) => {
+            serve(opts).await;
+        }
+    }
+}
+
+pub async fn upload(mut multipart: Multipart) -> impl axum::response::IntoResponse {
+    let mut data = Bytes::new();
+    let mut name = String::new();
+    while let Some(field) = multipart.next_field().await.unwrap() {
+        name = field.name().unwrap().to_string();
+        if name == "file" {
+            data = field.bytes().await.unwrap();
+            break;
+        }
+    }
+
+    "nice".into_response()
+}
+
 async fn root_page() -> Markup {
     html! {
         html lang="id" translate="no";
-
         head {
-            link rel="stylesheet" href="/static/css/style.css" {}
+            title { "My Page" }
+            script src="/static/js/htmx.min.js" {}
+            // script src="/static/js/hyperscript.min.js" {}
+            link rel="stylesheet" type="text/css" href="/static/css/style.css";
         }
-
-        body class="bg-background" {
-            div class="flex flex-col items-center justify-center h-screen" {
-                div class="flex gap-2" {
-                    (ui_theme_toggle())
-
-                    (Button::new()
-                     .build(html! {
-                        "Submit"
-                    }))
-
-                    (Button::outline()
-                     .build(html! {
-                         "Outline"
-                     }))
-
-                    (Button::new()
-                     .variant(ButtonVariant::Ghost)
-                     .build(html! {
-                        "Outline"
-                    }))
+        body class="bg-background flex flex-col h-screen items-center justify-center" {
+            div class="flex flex-col gap-4" {
+                span {
+                    "This text should change color in dark mode"
                 }
-            }
-        }
+                div class="flex gap-2"{
+                    {(ui_theme_toggle())}
+                    {(Button::new().hx_get("/nice").hx_swap("innerHTML").build(html! {"Primary"}))}
+                    {(Button::secondary().build(html! {"Secondary"}))}
+                    {(Button::outline().build(html! {"Outline"}))}
+                    {(Button::ghost().build(html! {"Ghost"}))}
+                    {(Button::destructive().build(html! {"Destructive"}))}
+                    {(Button::link().build(html! {"Link"}))}
+                }
 
-        (script())
-    }
-}
+                div {
+                    {(Input::new().class("w-fit").ty("text").placeholder("username").build())}
+                }
 
-pub fn ui_theme_toggle() -> Markup {
-    html! {
-        button id="theme-toggle" type="button" class="bg-primary text-primary-foreground p-2.5 text-sm bg-none rounded-full" {
-            svg id="theme-toggle-dark-icon" class="hidden w-4 h-4" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg" {
-                path d="M17.293 13.293A8 8 0 016.707 2.707a8.001 8.001 0 1010.586 10.586z"{}
-            }
-            svg id="theme-toggle-light-icon" class="hidden w-4 h-4" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg" {
-                path d="M10 2a1 1 0 011 1v1a1 1 0 11-2 0V3a1 1 0 011-1zm4 8a4 4 0 11-8 0 4 4 0 018 0zm-.464 4.95l.707.707a1 1 0 001.414-1.414l-.707-.707a1 1 0 00-1.414 1.414zm2.12-10.607a1 1 0 010 1.414l-.706.707a1 1 0 11-1.414-1.414l.707-.707a1 1 0 011.414 0zM17 11a1 1 0 100-2h-1a1 1 0 100 2h1zm-7 4a1 1 0 011 1v1a1 1 0 11-2 0v-1a1 1 0 011-1zM5.05 6.464A1 1 0 106.465 5.05l-.708-.707a1 1 0 00-1.414 1.414l.707.707zm1.414 8.486l-.707.707a1 1 0 01-1.414-1.414l.707-.707a1 1 0 011.414 1.414zM4 11a1 1 0 100-2H3a1 1 0 000 2h1z" fill-rule="evenodd" clip-rule="evenodd" {}
-            }
-        }
-    }
-}
-
-fn script() -> Markup {
-    html! {
-        script {
-            (PreEscaped(
-                    r##"
-
-                    var themeToggleDarkIcon = document.getElementById('theme-toggle-dark-icon');
-                    var themeToggleLightIcon = document.getElementById("theme-toggle-light-icon");
-                    var themeToggleBtn = document.getElementById("theme-toggle");
-
-                    // Initial theme check and apply
-                    if (localStorage.getItem("theme") === "dark" || (!("theme" in localStorage) && window.matchMedia("(prefers-color-scheme: dark)").matches)) {
-                        document.documentElement.classList.add("dark");
-                        themeToggleLightIcon !== null && themeToggleLightIcon.classList.remove("hidden");
-                    } else {
-                        document.documentElement.classList.add("light");
-                        themeToggleDarkIcon !== null && themeToggleDarkIcon.classList.remove("hidden");
+                form
+                    hx-encoding="multipart/form-data"
+                    hx-swap="none"
+                    hx-post="/upload"
+                    _="on htmx:xhr:progress(loaded, total) set #progress.value to (loaded/total)*100" {
+                        {(FileUploader::new().name("file").build())}
+                        div class="flex flex-col gap-2 mt-2"{
+                            {(Button::new().class("w-fit").build(html! { "Submit" }))}
+                            progress id="progress" value="0" max="100" {}
+                        }
                     }
-
-                    // Event listener for the toggle button
-                    themeToggleBtn !== null && themeToggleBtn.addEventListener("click", function() {
-                        themeToggleDarkIcon !== null && themeToggleDarkIcon.classList.toggle("hidden");
-                        themeToggleLightIcon !== null && themeToggleLightIcon.classList.toggle("hidden");
-
-                        var currentTheme = localStorage.getItem("theme");
-
-                        if (currentTheme === "light") {
-                            document.documentElement.classList.remove("light");
-                            document.documentElement.classList.add("dark");
-                            localStorage.setItem("theme", "dark");
-                        } else {
-                            document.documentElement.classList.remove("dark");
-                            document.documentElement.classList.add("light");
-                            localStorage.setItem("theme", "light");
-                        }
-
-                        // If no theme is set in localStorage, default to the opposite theme
-                        if (!currentTheme) {
-                            var newTheme = document.documentElement.classList.contains("dark") ? "light" : "dark";
-                            document.documentElement.classList.toggle("dark");
-                            document.documentElement.classList.toggle("light");
-                            localStorage.setItem("theme", newTheme);
-                        }
-                    });
-                    "##))
+            }
+        }
+        script {
+            (PreEscaped(include_str!("../scripts/theme_toggle.js")))
         }
     }
+}
+
+async fn init(opts: InitCmdArgs) {
+    for (i, line) in fs::read_to_string(&opts.files_list_path)
+        .expect("open files_list_path")
+        .lines()
+        .enumerate()
+    {
+        let cols = line.split_whitespace().collect::<Vec<_>>();
+        if cols.is_empty() {
+            continue;
+        }
+        if cols.len() != 3 {
+            eprintln!(
+                "Invalid line {} from {}: expected 3 columns, get {}",
+                i + 1,
+                &opts.files_list_path.to_str().expect("valid utf-8"),
+                cols.len()
+            );
+            std::process::exit(1);
+        }
+
+        let fname = cols[0];
+        let dir_path = cols[1];
+        let url = cols[2];
+
+        if !url.starts_with("https://") {
+            continue;
+        }
+
+        let base_dir = opts.base_dir.join("files").join(dir_path);
+        std::fs::create_dir_all(&base_dir).expect("create dir");
+
+        let contents = ureq::get(url)
+            .call()
+            .expect("download file")
+            .into_string()
+            .expect("extract resul");
+
+        std::fs::write(base_dir.join(fname), contents).expect("write result");
+    }
+}
+
+async fn build(opts: BuildCmdArgs) {
+    for (i, line) in fs::read_to_string(&opts.files_list_path)
+        .expect("open files_list_path")
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .enumerate()
+    {
+        let cols = line.split_whitespace().collect::<Vec<_>>();
+        if cols.len() != 3 {
+            eprintln!(
+                "Invalid line {} from {}: expected 3 columns, get {}",
+                i + 1,
+                &opts.files_list_path.to_str().expect("valid utf-8"),
+                cols.len()
+            );
+            std::process::exit(1);
+        }
+
+        let fname = cols[0];
+        let dir_path = cols[1];
+        let url = cols[2];
+
+        let dist_dir = opts.base_dir.join("dist").join(dir_path);
+        std::fs::create_dir_all(&dist_dir)
+            .unwrap_or_else(|e| panic!("mkdir dist_dir: {e}: {dist_dir:?}"));
+
+        let fpath = if url.starts_with("https://") {
+            opts.base_dir.join("files").join(dir_path).join(fname)
+        } else {
+            opts.base_dir.join(url)
+        };
+
+        gzip(&fpath, &dist_dir).unwrap_or_else(|e| panic!("gzip: {e}: {dist_dir:?}"));
+        if fpath.to_str().is_some_and(|s| s.contains("dist")) {
+            std::fs::remove_file(&fpath).expect("remove file");
+        }
+    }
+}
+
+/// Compress `file_path` using gz compresssion.
+/// The resulting file will be written to `output_dir` with additional `.gz` extension
+pub fn gzip(
+    file_path: impl AsRef<std::path::Path>,
+    output_dir: impl AsRef<std::path::Path>,
+) -> Result<(), std::io::Error> {
+    let spath = file_path.as_ref();
+    let output_dir = output_dir.as_ref();
+
+    let mut z = flate2::bufread::GzEncoder::new(
+        std::io::BufReader::new(std::fs::File::open(spath)?),
+        flate2::Compression::default(),
+    );
+    let mut buffer = Vec::new();
+    z.read_to_end(&mut buffer)?;
+
+    let spath_fname = spath
+        .file_name()
+        .expect("filename")
+        .to_str()
+        .expect("valid utf-8 fname");
+    let spath_extension = spath
+        .extension()
+        .expect("extension")
+        .to_str()
+        .expect("valid utf-8 extension");
+
+    fs::write(
+        std::path::PathBuf::from(output_dir)
+            .join(spath_fname)
+            .with_extension(format!("{}.gz", spath_extension)),
+        buffer,
+    )?;
+    Ok(())
+}
+
+async fn nice() -> &'static str {
+    "Nice"
 }
