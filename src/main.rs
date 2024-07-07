@@ -97,9 +97,10 @@ pub async fn upload(mut multipart: Multipart) -> impl axum::response::IntoRespon
     let mut name = String::new();
     while let Some(field) = multipart.next_field().await.unwrap() {
         name = field.name().unwrap().to_string();
+        println!("{:?}", name);
         if name == "file" {
             data = field.bytes().await.unwrap();
-            break;
+            // break;
         }
     }
 
@@ -112,7 +113,7 @@ async fn root_page() -> Markup {
         head {
             title { "My Page" }
             script src="/static/js/htmx.min.js" {}
-            // script src="/static/js/hyperscript.min.js" {}
+            script src="/static/js/hyperscript.min.js" {}
             link rel="stylesheet" type="text/css" href="/static/css/style.css";
         }
         body class="bg-background flex flex-col h-screen items-center justify-center" {
