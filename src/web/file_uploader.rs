@@ -57,7 +57,7 @@ impl<'a> FileUploader<'a> {
 }
 
 fn file_upload(props: FileUploader) -> Markup {
-    let base_classes = "block w-full text-sm text-foreground file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-primary file:text-primary-foreground hover:file:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 dark:file:bg-primary dark:file:text-primary-foreground dark:hover:file:bg-primary/90";
+    let base_classes = "cursor-pointer block w-full text-sm text-foreground file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-primary file:text-primary-foreground hover:file:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 dark:file:bg-primary dark:file:text-primary-foreground dark:hover:file:bg-primary/90";
 
     let mut classes = base_classes.to_string();
     if let Some(additional_class) = props.class {
